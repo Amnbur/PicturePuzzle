@@ -4,11 +4,22 @@
 #include "SDL_render.h"
 // #include "processthreadsapi.h"
 // #include "D:\programs\reverse\eigen\Eigen\Eigen"
-#include <vector>
 #include "synchapi.h"
 #include "normal_header.hpp"
+#include <vector>
 
 
+const unsigned sizeX = 3;
+const unsigned sizeY = 3;
+const unsigned PieceCount = sizeX * sizeY;
+SDL_Rect imgPieces[PieceCount];
+SDL_Rect mapPieces[PieceCount];
+unsigned PieceMatch[PieceCount]={1,5,3,8,2,4,6,0,7};
+std::vector<unsigned> MapPiecesToUpdate = {0,1,2,3,4,5,6,7,8};
+std::vector<unsigned> SelectedPieces;
+
+
+const Uint8 SelectingFrameColor[4] = {237,77,16,233};
 const char* DefaultPuzzleImage = "./src/img/countryside.png";
 const char *imgPath = "./src/img/wildness.png";
 
@@ -22,69 +33,30 @@ SDL_EventFilter evtFlt;
 
 bool ContinueMainLoop = true;
 bool MouseDown = false;
+bool FrameSize = 10;
+int MouseX = 0;
+int MouseY = 0;
+bool MouseMovedBeforeRelease = false;
+Uint32 FramColor = 0xff8888;
+
+void sdl_renderDrawThickRect(SDL_Renderer *renderer, const SDL_Rect *rect,Uint8 width, Uint32 color);
+void SetRectFrame(SDL_Renderer *renderer, const SDL_Rect *rect);
+
+void SplitMap(int w,int h,SDL_Rect* rects,int xCount,int yCount);
+bool CheckPieceMatch(unsigned* matchs,unsigned count);
+
+bool CheckPointInRect(int x,int y,SDL_Rect* rect);
 
 void MouseDownHandler();
 void MouseUpHandler();
 void MouseMotionHandler();
 
-void ZeroMmry(void* p, int size);
+
 void ClearRect(SDL_Rect* r);
 /*
     abandoned class
     minimized program method used
 */
-class Puzzle{
-    char* ImagePath;
-    bool ImageLoaded = false;
-    
-    unsigned xGrid = 3;
-    unsigned yGrid = 3;
-
-    SDL_Surface* Image = nullptr;
-    std::vector<SDL_Rect*> grid;
-    SDL_Window* PuzzleWindow = nullptr;
-
-public:
-    static const int DefaultWindowSize[4];
-    static const SDL_WindowFlags DefaultWindowFlag;
-
-public:
-    Puzzle(const char* mainImage = DefaultPuzzleImage):ImagePath((char*)mainImage){}
-    
-    bool CheckImageLoaded(){return ImageLoaded;}
-
-    bool LoadImage(char* PuzzleImagePath = nullptr){
-        if (PuzzleImagePath != nullptr)
-            ImagePath = PuzzleImagePath;
-        Image = IMG_Load(ImagePath);
-        if (CheckPointer(Image)){
-            return ImageLoaded = true;
-        }return false;
-    }
-
-    void setGrid(unsigned x,unsigned y){
-        xGrid = x;  
-        yGrid = y;
-    }
-    
-    bool setGrid(){
-        if (!CheckPointer(Image)){return false;}
-        
-    }
-
-    bool SetWindow(SDL_Window* window = nullptr,int* size = (int*) DefaultWindowSize,SDL_WindowFlags flag = DefaultWindowFlag){
-        if (!(CheckPointer(window)|CheckPointer(PuzzleWindow))){
-            PuzzleWindow = SDL_CreateWindow("title",DefaultPuzzleImage[0],DefaultPuzzleImage[1],DefaultPuzzleImage[2],DefaultPuzzleImage[3],0);
-            return true;
-        }
-        return false;
-    }
-};
-
-const int Puzzle::DefaultWindowSize[4] = {1,2,3,4};
-const SDL_WindowFlags Puzzle::DefaultWindowFlag = SDL_WindowFlags::SDL_WINDOW_OPENGL;
-
-
 int main_puzzle();
 
 # undef main
@@ -96,17 +68,22 @@ int main_puzzle(){
         exit(0);
     // const char *imgPath = "./src/img/countryside.png";
 
-
     //  create img
     imgSf = IMG_Load(imgPath);
     AlertPointer(imgSf);
+
     SDL_Rect imgBox = {0,0,imgSf->w,imgSf->h};
     SDL_Rect imgGrid = {0,0,imgSf->w / 3, imgSf->h /3};
-    SDL_Rect rdGrid = {0,0,imgGrid.w+12,imgGrid.h+12};
+    // SDL_Rect rdGrid = {0,0,imgGrid.w+12,imgGrid.h+12};   //  abandoned
 
     //  set & config window
-    wd = SDL_CreateWindow("t",0,0,imgBox.w+36,imgBox.h+36,SDL_WindowFlags::SDL_WINDOW_OPENGL);
-    SDL_Rect wdBox = {6,6,imgGrid.w,imgGrid.h};
+    int ta = imgBox.w , tb = imgBox.h, tc = 0;
+    while (ta>1920||ta>1080){
+        if (++tc > 5) return 0;
+        ta /= 2;    tb /= 2;
+    }
+    wd = SDL_CreateWindow("t",30,30,ta,tb,SDL_WindowFlags::SDL_WINDOW_OPENGL);
+    SDL_Rect wdBox = {0,0,imgGrid.w,imgGrid.h};
     AlertPointer(wd);
     
     //  renderer
@@ -117,27 +94,48 @@ int main_puzzle(){
     AlertPointer(imgT);
 
     sf = SDL_GetWindowSurface(wd);
-    // SDL_FillRect(sf,nullptr,SDL_MapRGB(sf->format, 0, 255, 210));
-    // SDL_UpdateWindowSurface(wd);
-    // AlertPointer(sf);
+    AlertPointer(sf);
     
     //  split
-    SDL_SetRenderDrawColor(rd,0,255,210,0);
-    SDL_RenderFillRect(rd,nullptr);
-    SDL_SetRenderDrawColor(rd,255,128,0,0);
-    SDL_RenderFillRect(rd,&rdGrid);
+    SplitMap(imgSf->w,imgSf->h,imgPieces,sizeX,sizeY);
+    SplitMap(sf->w,sf->h,mapPieces,sizeX,sizeY);
 
-    SDL_RenderCopy(rd,imgT,&imgGrid,&wdBox);
+
+    SDL_SetRenderDrawBlendMode(rd,SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(rd,255,255,255,255);
+    SDL_RenderFillRect(rd,nullptr); //  白底
+    SDL_SetRenderDrawColor(rd,0,0,0,0x80);  
+    SDL_RenderFillRect(rd,nullptr);//  黑色蒙版
+    //  得到灰底，rgba显示正常
+
+    // SDL_SetRenderDrawColor(rd,0,0,0,255);
+    // SDL_RenderDrawRect(rd,nullptr); //  black outline
+    SDL_SetRenderDrawColor(rd,255,128,0,0);
     SDL_RenderPresent(rd);
+    SelectedPieces.push_back(3);
 
 MAIN_LOOP:
     ContinueMainLoop = true;
     while (ContinueMainLoop){
+        //  先更新屏幕吧
+        for (auto i: MapPiecesToUpdate){
+            SDL_RenderCopy(rd,imgT, imgPieces+PieceMatch[i] , mapPieces+i);
+        }   MapPiecesToUpdate.clear();
+
+        //  接着处理焦点事件
+        SDL_SetRenderDrawColor(rd,SelectingFrameColor[0],SelectingFrameColor[1],SelectingFrameColor[2],SelectingFrameColor[3]);
+        for (auto i:SelectedPieces){
+            SDL_RenderDrawRect(rd,mapPieces+i);
+        }
+
         //  check events
         if (SDL_PollEvent(&evt)){
             switch(evt.type){
+            
             case SDL_QUIT:
-                goto TEST_END;
+                SDL_Log("Quit");
+                goto FUNCTION_QUIT;
+            
             case SDL_MOUSEBUTTONDOWN:
                 MouseDownHandler();
                 break;
@@ -145,39 +143,136 @@ MAIN_LOOP:
                 MouseUpHandler();
                 break;
             case SDL_MOUSEMOTION:
-                
+                MouseMotionHandler();
+                break;
+            
             default:
                 break;
             }
         }
+
+        //  不论如何都更新屏幕
         SDL_RenderPresent(rd);
     }
 
-TEST_END:
+FUNCTION_QUIT:
     SDL_DestroyWindow(wd);    
     return 0;
 }
 
+// void sdl_renderDrawThickRect(SDL_Renderer *renderer, const SDL_Rect *rect,Uint8 width, Uint32 color){
+//     int xa = rect->x,
+//         xb = rect->x + rect->w,
+//         ya = rect->y,
+//         yb = rect->y + rect->h;
+//     thickLineColor(renderer,xa,ya,xb,ya,width,color);   //  upline
+//     thickLineColor(renderer,xa,ya,xa,yb,width,color);   //  leftline
+//     thickLineColor(renderer,xb,ya,xb,yb,width,color);   //  rightline
+//     thickLineColor(renderer,xa,yb,xb,yb,width,color);   //  underline
+// }
+// void SetRectFrame(SDL_Renderer *renderer, const SDL_Rect *rect){
+//     sdl_renderDrawThickRect(renderer,rect,FrameSize,FramColor);
+// }
+
+
+void SplitMap(int w,int h,SDL_Rect* rects,int xCount,int yCount){
+    int x = w/xCount;
+    int y = h/yCount;
+    for (auto i =0 ;i<yCount;++i){
+        for (auto j=0;j<xCount;++j){
+            rects->x = j*x;
+            rects->y = i*y;
+            rects->w = x;
+            rects->h = y;
+            ++ rects;
+        }
+    }
+}
+
+bool CheckPieceMatch(unsigned* matchs,unsigned count){
+    for (unsigned i = 0;i<count;++i){
+        if (matchs[i] != i) return false;
+    }
+    return true;
+}
+
+
+bool CheckPointInRect(int x,int y,SDL_Rect* rect){
+    return (x>=rect->x) && (y>=rect->y) && (x<rect->x+rect->w) && (y<rect->y+rect->h);
+}
 
 
 void MouseDownHandler(){
     MouseDown = true;
-    
+    for (auto i :SelectedPieces)
+        MapPiecesToUpdate.push_back(i);
+    SelectedPieces.clear();
+
+    //  检查选中的格
+    SDL_GetMouseState(&MouseX,&MouseY);
+    for (auto i=0;i<PieceCount;++i){
+        if (CheckPointInRect(MouseX,MouseY,mapPieces+i)){
+            SelectedPieces.push_back(i);    //  理应只能选中一个方块
+            break;
+        }
+    }
 }
 void MouseUpHandler(){
     MouseDown = false;
+    MouseMovedBeforeRelease = false;
 }
 void MouseMotionHandler(){
     if (MouseDown){
-        
+        MouseMovedBeforeRelease = true;
     }
 }
 
 
-
-void ZeroMmry(void* p, int size){
-    memset(p,0,size);
-}
 void ClearRect(SDL_Rect* r){
     ZeroMmry(r,sizeof(SDL_Rect));
 }
+
+/*
+dustbin
+
+    //  split
+    SDL_SetRenderDrawBlendMode(rd,SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(rd,255,255,255,255);
+    SDL_RenderFillRect(rd,nullptr);
+
+    SDL_SetRenderDrawColor(rd,0,0,0,255);
+    SDL_RenderDrawRect(rd,nullptr); //  black outline
+    
+    SDL_SetRenderDrawColor(rd,255,128,0,0);
+    // SDL_RenderFillRect(rd,&rdGrid);  //  abandoned
+    // 改为在rect上方Draw Lines表示选择框
+
+    // SDL_RenderCopy(rd,imgT,&imgGrid,&wdBox);
+    // FramColor = SDL_MapRGBA(sf->format, 255, 136, 136, 0);
+    // SetRectFrame(rd,&wdBox); 没效果啊？
+    // thickLineColor(rd,(int16_t)(wdBox.x),(int16_t)(wdBox.y),(int16_t)(wdBox.x+wdBox.w),(int16_t)(wdBox.y+wdBox.h),(Uint8)5,(Uint16)FramColor);
+
+    // SDL_SetRenderDrawColor(rd,0,0,0,0);
+    // SDL_RenderDrawLine(rd,wdBox.x+wdBox.w,wdBox.y,wdBox.x,wdBox.y+wdBox.h);
+    SDL_RenderPresent(rd);
+
+MAIN_LOOP:
+
+    imgSf = IMG_Load(imgPath);
+    AlertPointer(imgSf);
+
+    SDL_Rect imgBox = {0,0,imgSf->w,imgSf->h};
+    SDL_Rect imgGrid = {0,0,imgSf->w / 3, imgSf->h /3};
+    // SDL_Rect rdGrid = {0,0,imgGrid.w+12,imgGrid.h+12};   //  abandoned
+
+    //  set & config window
+    int ta = imgBox.w , tb = imgBox.h, tc = 0;
+    while (ta>1920||ta>1080){
+        if (++tc > 5) return 0;
+        ta /= 2;    tb /= 2;
+    }
+    wd = SDL_CreateWindow("t",30,30,ta,tb,SDL_WindowFlags::SDL_WINDOW_OPENGL);
+    SDL_Rect wdBox = {0,0,imgGrid.w,imgGrid.h};
+
+
+*/
