@@ -2,26 +2,26 @@
 #include "SDL_image.h"
 #include "SDL_surface.h"
 #include "SDL_render.h"
-// #include "processthreadsapi.h"
-// #include "D:\programs\reverse\eigen\Eigen\Eigen"
+
 #include "synchapi.h"
 #include "normal_header.hpp"
 #include <vector>
 
 
-const unsigned sizeX = 3;
+const unsigned sizeX = 5;
 const unsigned sizeY = 3;
 const unsigned PieceCount = sizeX * sizeY;
 SDL_Rect imgPieces[PieceCount];
 SDL_Rect mapPieces[PieceCount];
-unsigned PieceMatch[PieceCount]={1,5,3,8,2,4,6,0,7};
-std::vector<unsigned> MapPiecesToUpdate = {0,1,2,3,4,5,6,7,8};
+unsigned PieceMatch[PieceCount]={0,1,2,3,4,5,6,8,7,9,10,11,12,13,14};
+std::vector<unsigned> MapPiecesToUpdate = {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14};
 std::vector<unsigned> SelectedPieces;
 
 
 const Uint8 SelectingFrameColor[4] = {237,77,16,233};
 const char* DefaultPuzzleImage = "./src/img/countryside.png";
-const char *imgPath = "./src/img/wildness.png";
+// const char *imgPath = "./src/img/wildness.png";
+const char *imgPath = "./src/img/countryside.png";
 
 SDL_Surface* imgSf;
 SDL_Window* wd;
@@ -46,6 +46,7 @@ void SplitMap(int w,int h,SDL_Rect* rects,int xCount,int yCount);
 bool CheckPieceMatch(unsigned* matchs,unsigned count);
 
 bool CheckPointInRect(int x,int y,SDL_Rect* rect);
+unsigned CheckMouseFocus();
 
 void MouseDownHandler();
 void MouseUpHandler();
@@ -78,7 +79,7 @@ int main_puzzle(){
 
     //  set & config window
     int ta = imgBox.w , tb = imgBox.h, tc = 0;
-    while (ta>1920||ta>1080){
+    while (ta>960||tb>540){
         if (++tc > 5) return 0;
         ta /= 2;    tb /= 2;
     }
@@ -112,12 +113,14 @@ int main_puzzle(){
     // SDL_RenderDrawRect(rd,nullptr); //  black outline
     SDL_SetRenderDrawColor(rd,255,128,0,0);
     SDL_RenderPresent(rd);
-    SelectedPieces.push_back(3);
+    // SelectedPieces.push_back(3);
 
 MAIN_LOOP:
     ContinueMainLoop = true;
+
     while (ContinueMainLoop){
-        //  先更新屏幕吧
+
+        //  更新屏幕
         for (auto i: MapPiecesToUpdate){
             SDL_RenderCopy(rd,imgT, imgPieces+PieceMatch[i] , mapPieces+i);
         }   MapPiecesToUpdate.clear();
@@ -151,8 +154,19 @@ MAIN_LOOP:
             }
         }
 
-        //  不论如何都更新屏幕
+        //  不论如何都刷新屏幕
         SDL_RenderPresent(rd);
+
+        if (CheckPieceMatch(PieceMatch,PieceCount)){
+            SelectedPieces.clear();
+            ContinueMainLoop = false;
+            for (auto i = 0;i<PieceCount;++i){
+                SDL_RenderCopy(rd,imgT, imgPieces+PieceMatch[i] , mapPieces+i);
+            }
+            SDL_RenderPresent(rd);
+            Sleep(500);
+            system("win.pyw");	//	win
+        }
     }
 
 FUNCTION_QUIT:
@@ -200,6 +214,15 @@ bool CheckPieceMatch(unsigned* matchs,unsigned count){
 bool CheckPointInRect(int x,int y,SDL_Rect* rect){
     return (x>=rect->x) && (y>=rect->y) && (x<rect->x+rect->w) && (y<rect->y+rect->h);
 }
+unsigned CheckMouseFocus(){
+    SDL_GetMouseState(&MouseX,&MouseY);
+    for (auto i=0;i<PieceCount;++i){
+        if (CheckPointInRect(MouseX,MouseY,mapPieces+i)){
+            return i;
+        }
+    }
+    return -1;
+}
 
 
 void MouseDownHandler(){
@@ -209,15 +232,20 @@ void MouseDownHandler(){
     SelectedPieces.clear();
 
     //  检查选中的格
-    SDL_GetMouseState(&MouseX,&MouseY);
-    for (auto i=0;i<PieceCount;++i){
-        if (CheckPointInRect(MouseX,MouseY,mapPieces+i)){
-            SelectedPieces.push_back(i);    //  理应只能选中一个方块
-            break;
-        }
-    }
+    unsigned focus = CheckMouseFocus();
+    if (focus!=-1)
+        SelectedPieces.push_back(focus);
 }
 void MouseUpHandler(){
+    unsigned MovedFocus = CheckMouseFocus();
+    if (MouseMovedBeforeRelease && SelectedPieces.size()==1){
+        if (MovedFocus != SelectedPieces[0]){
+            MapPiecesToUpdate.push_back(SelectedPieces[0]);
+            MapPiecesToUpdate.push_back(MovedFocus);
+            SwapValue(PieceMatch[MovedFocus],PieceMatch[SelectedPieces[0]]);
+            SelectedPieces[0] = MovedFocus;
+        }
+    }
     MouseDown = false;
     MouseMovedBeforeRelease = false;
 }

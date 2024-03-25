@@ -19,4 +19,8 @@ void SwapValue(T& a,T& b){  //  浅拷贝
     a = b;
     b = tmp;
 }
+void ZeroMmry(void* p, int size){
+    memset(p,0,size);
+}
+
 # endif
