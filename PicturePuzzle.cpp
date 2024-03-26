@@ -6,16 +6,18 @@
 #include "synchapi.h"
 #include "normal_header.hpp"
 #include <vector>
+#include <algorithm>
 
 
-const unsigned sizeX = 5;
-const unsigned sizeY = 3;
-const unsigned PieceCount = sizeX * sizeY;
-SDL_Rect imgPieces[PieceCount];
-SDL_Rect mapPieces[PieceCount];
-unsigned PieceMatch[PieceCount]={0,1,2,3,4,5,6,8,7,9,10,11,12,13,14};
-std::vector<unsigned> MapPiecesToUpdate = {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14};
+unsigned sizeX;
+unsigned sizeY;
+unsigned PieceCount = 0;
+SDL_Rect *imgPieces = nullptr;
+SDL_Rect *mapPieces = nullptr;
+unsigned *PieceMatch = nullptr;
+std::vector<unsigned> MapPiecesToUpdate;
 std::vector<unsigned> SelectedPieces;
+std::vector<unsigned> MultipleSwapBuff; //  clear it before using
 
 
 const Uint8 SelectingFrameColor[4] = {237,77,16,233};
@@ -23,6 +25,8 @@ const char* DefaultPuzzleImage = "./src/img/countryside.png";
 // const char *imgPath = "./src/img/wildness.png";
 const char *imgPath = "./src/img/countryside.png";
 
+SDL_Rect imgBox = {0,0,0,0};
+SDL_Rect imgGrid = {0,0,0,0};
 SDL_Surface* imgSf;
 SDL_Window* wd;
 SDL_Surface* sf;
@@ -34,16 +38,21 @@ SDL_EventFilter evtFlt;
 bool ContinueMainLoop = true;
 bool MouseDown = false;
 bool FrameSize = 10;
+bool MultipleSelectionModeEnabled = false;
 int MouseX = 0;
 int MouseY = 0;
+unsigned MultipleSelectionRepresentive = 0;
 bool MouseMovedBeforeRelease = false;
 Uint32 FramColor = 0xff8888;
 
 void sdl_renderDrawThickRect(SDL_Renderer *renderer, const SDL_Rect *rect,Uint8 width, Uint32 color);
 void SetRectFrame(SDL_Renderer *renderer, const SDL_Rect *rect);
 
+void InitGame();
+void UninitGame();
 void SplitMap(int w,int h,SDL_Rect* rects,int xCount,int yCount);
 bool CheckPieceMatch(unsigned* matchs,unsigned count);
+void ExitCheck();
 
 bool CheckPointInRect(int x,int y,SDL_Rect* rect);
 unsigned CheckMouseFocus();
@@ -51,6 +60,8 @@ unsigned CheckMouseFocus();
 void MouseDownHandler();
 void MouseUpHandler();
 void MouseMotionHandler();
+void KeyDownHandler();
+void KeyUpHandler();
 
 
 void ClearRect(SDL_Rect* r);
@@ -62,20 +73,21 @@ int main_puzzle();
 
 # undef main
 int main(){
+    atexit(ExitCheck);
     return main_puzzle();
 }
 int main_puzzle(){
+    InitGame();
     if(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO|SDL_INIT_GAMECONTROLLER|SDL_INIT_SENSOR|SDL_INIT_EVENTS)<0)
-        exit(0);
+        exit(0);// goto UNINIT;
     // const char *imgPath = "./src/img/countryside.png";
 
     //  create img
     imgSf = IMG_Load(imgPath);
     AlertPointer(imgSf);
 
-    SDL_Rect imgBox = {0,0,imgSf->w,imgSf->h};
-    SDL_Rect imgGrid = {0,0,imgSf->w / 3, imgSf->h /3};
-    // SDL_Rect rdGrid = {0,0,imgGrid.w+12,imgGrid.h+12};   //  abandoned
+    imgBox.w = imgSf->w;
+    imgBox.h = imgSf->h;
 
     //  set & config window
     int ta = imgBox.w , tb = imgBox.h, tc = 0;
@@ -84,7 +96,6 @@ int main_puzzle(){
         ta /= 2;    tb /= 2;
     }
     wd = SDL_CreateWindow("t",30,30,ta,tb,SDL_WindowFlags::SDL_WINDOW_OPENGL);
-    SDL_Rect wdBox = {0,0,imgGrid.w,imgGrid.h};
     AlertPointer(wd);
     
     //  renderer
@@ -137,18 +148,25 @@ MAIN_LOOP:
             
             case SDL_QUIT:
                 SDL_Log("Quit");
-                goto FUNCTION_QUIT;
+                goto DestroyWindowAndQuit;
             
             case SDL_MOUSEBUTTONDOWN:
-                MouseDownHandler();
-                break;
+                MouseDownHandler();     break;
             case SDL_MOUSEBUTTONUP:
-                MouseUpHandler();
-                break;
+                MouseUpHandler();       break;
             case SDL_MOUSEMOTION:
-                MouseMotionHandler();
+                MouseMotionHandler();   break;
+            case SDL_KEYDOWN:
+                //  KeyDownHandler();       
+                if (evt.key.keysym.sym == SDLK_LCTRL)
+                    MultipleSelectionModeEnabled = true;   
                 break;
-            
+            case SDL_KEYUP:
+                // KeyUpHandler();
+                //  鼠标按下后未抬起不能解除多选模式
+                if (evt.key.keysym.sym == SDLK_LCTRL && MouseDown == false) 
+                    MultipleSelectionModeEnabled = false;
+                break;
             default:
                 break;
             }
@@ -169,8 +187,10 @@ MAIN_LOOP:
         }
     }
 
-FUNCTION_QUIT:
-    SDL_DestroyWindow(wd);    
+DestroyWindowAndQuit:
+    SDL_DestroyWindow(wd);
+UNINIT:
+    UninitGame();
     return 0;
 }
 
@@ -188,6 +208,26 @@ FUNCTION_QUIT:
 //     sdl_renderDrawThickRect(renderer,rect,FrameSize,FramColor);
 // }
 
+void InitGame(){
+    sizeX = 5;
+    sizeY = 3;
+    PieceCount = sizeX * sizeY;
+    imgPieces = new SDL_Rect[PieceCount];
+    mapPieces = new SDL_Rect[PieceCount];
+    PieceMatch = new unsigned[PieceCount]{0,1,2,3,4,5,6,8,7,9,10,11,12,13,14};
+
+    AlertPointer(imgPieces);AlertPointer(imgPieces);AlertPointer(PieceMatch);
+    std::vector<unsigned> v = {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14};
+    MapPiecesToUpdate = v;
+}
+void UninitGame(){
+    DeletePointer(&imgPieces);
+    DeletePointer(&mapPieces);
+    DeletePointer(&PieceMatch);
+}
+void ExitCheck(){
+    SDL_Log("quit");
+}
 
 void SplitMap(int w,int h,SDL_Rect* rects,int xCount,int yCount){
     int x = w/xCount;
@@ -227,34 +267,104 @@ unsigned CheckMouseFocus(){
 
 void MouseDownHandler(){
     MouseDown = true;
-    for (auto i :SelectedPieces)
-        MapPiecesToUpdate.push_back(i);
-    SelectedPieces.clear();
-
     //  检查选中的格
     unsigned focus = CheckMouseFocus();
-    if (focus!=-1)
-        SelectedPieces.push_back(focus);
+    if (focus!=-1){
+        //  取消选择之前选中的
+        if (std::find(SelectedPieces.begin(),SelectedPieces.end(),focus) == SelectedPieces.end()){
+            for (auto i:SelectedPieces)
+                MapPiecesToUpdate.push_back(i);
+            SelectedPieces.clear();
+            SelectedPieces.push_back(focus);
+        }else{  //  点击已经被选中的元素
+            if (SelectedPieces.size()>1)
+                MultipleSelectionRepresentive = focus;
+        }
+    }
 }
 void MouseUpHandler(){
     unsigned MovedFocus = CheckMouseFocus();
-    if (MouseMovedBeforeRelease && SelectedPieces.size()==1){
-        if (MovedFocus != SelectedPieces[0]){
-            MapPiecesToUpdate.push_back(SelectedPieces[0]);
-            MapPiecesToUpdate.push_back(MovedFocus);
-            SwapValue(PieceMatch[MovedFocus],PieceMatch[SelectedPieces[0]]);
-            SelectedPieces[0] = MovedFocus;
+    unsigned MoveOffset;
+    if (MultipleSelectionModeEnabled){
+        unsigned presentFocus = CheckMouseFocus();
+        unsigned formerFocus;
+        if (SelectedPieces.size()==1){
+            formerFocus = SelectedPieces[0];
+            int xa,xb;
+            int ya,yb;
+            int xx,yy;
+            xa = ((presentFocus%sizeX)<(formerFocus%sizeX))?(presentFocus%sizeX):(formerFocus%sizeX);
+            xb = ((presentFocus%sizeX)>=(formerFocus%sizeX))?(presentFocus%sizeX):(formerFocus%sizeX);
+            ya = ((presentFocus/sizeX)<(formerFocus/sizeX))?(presentFocus/sizeX):(formerFocus/sizeX);
+            yb = ((presentFocus/sizeX)>=(formerFocus/sizeX))?(presentFocus/sizeX):(formerFocus/sizeX);
+            
+            SelectedPieces.clear();
+            for (yy=ya;yy<=yb;++yy) //  完成多选
+                for (xx=xa;xx<=xb;++xx)
+                    SelectedPieces.push_back(yy*sizeX+xx);
+        }
+        MultipleSelectionModeEnabled = false;
+    }
+    else{   //  multipleSelectionMode disabled
+        if (MouseMovedBeforeRelease){
+            if (SelectedPieces.size()==1){   //  普通的交换两个块
+                if (MovedFocus != SelectedPieces[0]){
+                    MapPiecesToUpdate.push_back(SelectedPieces[0]);
+                    MapPiecesToUpdate.push_back(MovedFocus);
+                    SwapValue(PieceMatch[MovedFocus],PieceMatch[SelectedPieces[0]]);
+                    SelectedPieces[0] = MovedFocus;
+                }
+            }else if (SelectedPieces.size() > 1 && std::find(SelectedPieces.begin(),SelectedPieces.end(),MovedFocus)==SelectedPieces.end()){
+            //  如果移动后的矩阵与移动前的有重叠，则不可移动
+                MoveOffset = PieceCount + MovedFocus - MultipleSelectionRepresentive;    //  防止负数溢出，之后需要取模
+                if (MoveOffset % PieceCount){
+                    MultipleSwapBuff.clear();
+                    
+                    for (unsigned &s:SelectedPieces){    //  交换
+                        if (std::find(SelectedPieces.begin(),SelectedPieces.end(),(s+MoveOffset) % PieceCount)!=SelectedPieces.end())
+                            goto MOUSE_UP_END;
+                        MapPiecesToUpdate.push_back(s);
+                        MapPiecesToUpdate.push_back((s+MoveOffset) % PieceCount);
+                        MultipleSwapBuff.push_back(PieceMatch[s]);
+                    }
+                    for (unsigned &s:SelectedPieces){
+                        PieceMatch[s] = PieceMatch[(s+MoveOffset) % PieceCount];
+                        s = (s+MoveOffset) % PieceCount;
+                    }
+                    auto it = MultipleSwapBuff.begin();
+                    for (unsigned s:SelectedPieces){
+                        PieceMatch[s] = *it++;
+                    }
+                }
+                else goto RETURN_TO_SINGLE_MODE;
+            }
+        }else{  //  选择一个但并且没有动
+        RETURN_TO_SINGLE_MODE:
+            if (SelectedPieces.size()>1 && MouseMovedBeforeRelease==false){
+                for (auto i:SelectedPieces)
+                    MapPiecesToUpdate.push_back(i);
+                SelectedPieces.clear();
+                SelectedPieces.push_back(CheckMouseFocus());
+            }
         }
     }
+MOUSE_UP_END:
     MouseDown = false;
     MouseMovedBeforeRelease = false;
 }
+
 void MouseMotionHandler(){
     if (MouseDown){
         MouseMovedBeforeRelease = true;
     }
 }
-
+// void KeyDownHandler(){   弃用
+//     int keyNum;
+//     SDL_GetKeyboardState(&keyNum);
+// }
+// void KeyUpHandler(){
+    
+// }
 
 void ClearRect(SDL_Rect* r){
     ZeroMmry(r,sizeof(SDL_Rect));
@@ -274,6 +384,10 @@ dustbin
     SDL_SetRenderDrawColor(rd,255,128,0,0);
     // SDL_RenderFillRect(rd,&rdGrid);  //  abandoned
     // 改为在rect上方Draw Lines表示选择框
+
+    imgGrid = {0,0,imgSf->w / 3, imgSf->h /3};
+    // SDL_Rect rdGrid = {0,0,imgGrid.w+12,imgGrid.h+12};   //  abandoned
+        SDL_Rect wdBox = {0,0,imgGrid.w,imgGrid.h};
 
     // SDL_RenderCopy(rd,imgT,&imgGrid,&wdBox);
     // FramColor = SDL_MapRGBA(sf->format, 255, 136, 136, 0);
@@ -303,4 +417,7 @@ MAIN_LOOP:
     SDL_Rect wdBox = {0,0,imgGrid.w,imgGrid.h};
 
 
+// for (auto s=SelectedPieces.begin();s!=SelectedPieces.end();++s){    //  交换
+                    //     MultipleSwapBuff.push_back(PieceMatch[*s]);
+                    //     PieceMatch[*s] = PieceMatch[(*s+MoveOffset) % PieceCount];
 */

@@ -13,6 +13,15 @@ bool CheckPointer(void* p){
 void AlertPointer(void* p,int exitCode = 0){
     if (!CheckPointer(p))    exit(exitCode);
 }
+template <class T>
+bool DeletePointer(T **p){
+    if (*p == nullptr)
+        return false;
+    delete[] (*p); 
+    *p = nullptr;
+    return true;
+}
+
 template <class T>  
 void SwapValue(T& a,T& b){  //  浅拷贝
     T tmp = a;
