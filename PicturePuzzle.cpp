@@ -7,6 +7,11 @@
 #include "normal_header.hpp"
 #include <vector>
 #include <algorithm>
+#include <cstdlib>
+#include <ctime>
+#include <fstream>
+#include <string>
+#include <thread>
 
 
 unsigned sizeX;
@@ -20,10 +25,11 @@ std::vector<unsigned> SelectedPieces;
 std::vector<unsigned> MultipleSwapBuff; //  clear it before using
 
 
-const Uint8 SelectingFrameColor[4] = {237,77,16,233};
+// const Uint8 SelectingFrameColor[4] = {237,77,16,233};
+const Uint8 SelectingFrameColor[4] = {255,255,255,255};
 const char* DefaultPuzzleImage = "./src/img/countryside.png";
-// const char *imgPath = "./src/img/wildness.png";
 const char *imgPath = "./src/img/countryside.png";
+
 
 SDL_Rect imgBox = {0,0,0,0};
 SDL_Rect imgGrid = {0,0,0,0};
@@ -34,6 +40,8 @@ SDL_Renderer* rd;
 SDL_Texture* imgT;
 SDL_Event evt;
 SDL_EventFilter evtFlt;
+SDL_Keycode key;
+SDL_KeyCode k;
 
 bool ContinueMainLoop = true;
 bool MouseDown = false;
@@ -48,10 +56,12 @@ Uint32 FramColor = 0xff8888;
 void sdl_renderDrawThickRect(SDL_Renderer *renderer, const SDL_Rect *rect,Uint8 width, Uint32 color);
 void SetRectFrame(SDL_Renderer *renderer, const SDL_Rect *rect);
 
-void InitGame();
+void InitGame(const char* imagePath =imgPath,int x=5,int y=4);
 void UninitGame();
 void SplitMap(int w,int h,SDL_Rect* rects,int xCount,int yCount);
 bool CheckPieceMatch(unsigned* matchs,unsigned count);
+void ShowVictory();
+void RandPieces();
 void ExitCheck();
 
 bool CheckPointInRect(int x,int y,SDL_Rect* rect);
@@ -62,6 +72,7 @@ void MouseUpHandler();
 void MouseMotionHandler();
 void KeyDownHandler();
 void KeyUpHandler();
+void KeyUpHandler(SDL_Keycode k);
 
 
 void ClearRect(SDL_Rect* r);
@@ -72,59 +83,22 @@ void ClearRect(SDL_Rect* r);
 int main_puzzle();
 
 # undef main
-int main(){
+int main(int argc,char *argv[]){
+    // InitActiveCodePage();
     atexit(ExitCheck);
+
+    int x=5,y=4;
+    char *p = (char*)imgPath;
+    if (argc>1)
+        p = argv[1];
+    if (argc>3){
+        sscanf(argv[2],"%d",&x);
+        sscanf(argv[3],"%d",&y);
+    }
+    InitGame(p,x,y);
     return main_puzzle();
 }
 int main_puzzle(){
-    InitGame();
-    if(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO|SDL_INIT_GAMECONTROLLER|SDL_INIT_SENSOR|SDL_INIT_EVENTS)<0)
-        exit(0);// goto UNINIT;
-    // const char *imgPath = "./src/img/countryside.png";
-
-    //  create img
-    imgSf = IMG_Load(imgPath);
-    AlertPointer(imgSf);
-
-    imgBox.w = imgSf->w;
-    imgBox.h = imgSf->h;
-
-    //  set & config window
-    int ta = imgBox.w , tb = imgBox.h, tc = 0;
-    while (ta>960||tb>540){
-        if (++tc > 5) return 0;
-        ta /= 2;    tb /= 2;
-    }
-    wd = SDL_CreateWindow("t",30,30,ta,tb,SDL_WindowFlags::SDL_WINDOW_OPENGL);
-    AlertPointer(wd);
-    
-    //  renderer
-    rd = SDL_CreateRenderer(wd,-1,SDL_RENDERER_ACCELERATED);
-    AlertPointer(rd);
-    SDL_RenderClear(rd);
-    imgT = SDL_CreateTextureFromSurface(rd,imgSf);
-    AlertPointer(imgT);
-
-    sf = SDL_GetWindowSurface(wd);
-    AlertPointer(sf);
-    
-    //  split
-    SplitMap(imgSf->w,imgSf->h,imgPieces,sizeX,sizeY);
-    SplitMap(sf->w,sf->h,mapPieces,sizeX,sizeY);
-
-
-    SDL_SetRenderDrawBlendMode(rd,SDL_BLENDMODE_BLEND);
-    SDL_SetRenderDrawColor(rd,255,255,255,255);
-    SDL_RenderFillRect(rd,nullptr); //  白底
-    SDL_SetRenderDrawColor(rd,0,0,0,0x80);  
-    SDL_RenderFillRect(rd,nullptr);//  黑色蒙版
-    //  得到灰底，rgba显示正常
-
-    // SDL_SetRenderDrawColor(rd,0,0,0,255);
-    // SDL_RenderDrawRect(rd,nullptr); //  black outline
-    SDL_SetRenderDrawColor(rd,255,128,0,0);
-    SDL_RenderPresent(rd);
-    // SelectedPieces.push_back(3);
 
 MAIN_LOOP:
     ContinueMainLoop = true;
@@ -162,10 +136,10 @@ MAIN_LOOP:
                     MultipleSelectionModeEnabled = true;   
                 break;
             case SDL_KEYUP:
-                // KeyUpHandler();
                 //  鼠标按下后未抬起不能解除多选模式
-                if (evt.key.keysym.sym == SDLK_LCTRL && MouseDown == false) 
+                if ((key = evt.key.keysym.sym) == SDLK_LCTRL && MouseDown == false) 
                     MultipleSelectionModeEnabled = false;
+                else    KeyUpHandler(key);
                 break;
             default:
                 break;
@@ -182,8 +156,9 @@ MAIN_LOOP:
                 SDL_RenderCopy(rd,imgT, imgPieces+PieceMatch[i] , mapPieces+i);
             }
             SDL_RenderPresent(rd);
-            Sleep(500);
-            system("win.pyw");	//	win
+            Sleep(300);
+            std::thread threadA = std::thread(ShowVictory);
+            threadA.detach();
         }
     }
 
@@ -208,17 +183,65 @@ UNINIT:
 //     sdl_renderDrawThickRect(renderer,rect,FrameSize,FramColor);
 // }
 
-void InitGame(){
-    sizeX = 5;
-    sizeY = 3;
+void InitGame(const char* imagePath,int x,int y){
+    sizeX = x;
+    sizeY = y;
     PieceCount = sizeX * sizeY;
     imgPieces = new SDL_Rect[PieceCount];
     mapPieces = new SDL_Rect[PieceCount];
-    PieceMatch = new unsigned[PieceCount]{0,1,2,3,4,5,6,8,7,9,10,11,12,13,14};
+    PieceMatch = new unsigned[PieceCount];
 
+    for (auto i=0;i<PieceCount;++i){
+        PieceMatch[i] = i;
+        MapPiecesToUpdate.push_back(i);
+    }
     AlertPointer(imgPieces);AlertPointer(imgPieces);AlertPointer(PieceMatch);
-    std::vector<unsigned> v = {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14};
-    MapPiecesToUpdate = v;
+    RandPieces();
+
+        if(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO|SDL_INIT_GAMECONTROLLER|SDL_INIT_SENSOR|SDL_INIT_EVENTS)<0)
+        exit(0);// goto UNINIT;
+    // const char *imgPath = "./src/img/countryside.png";
+
+    //  create img
+    imgSf = IMG_Load(imagePath);
+    AlertPointer(imgSf);
+    imgBox.w = imgSf->w;
+    imgBox.h = imgSf->h;
+
+    //  set & config window
+    int ta = imgBox.w , tb = imgBox.h, tc = 0;
+    while (ta>960||tb>540){
+        if (++tc > 10) return;
+        ta = ta*0.9;    tb = tb*0.9;
+    }
+    wd = SDL_CreateWindow("t",200,200,ta,tb,SDL_WindowFlags::SDL_WINDOW_OPENGL);
+    AlertPointer(wd);
+    //  renderer
+    rd = SDL_CreateRenderer(wd,-1,SDL_RENDERER_ACCELERATED);
+    AlertPointer(rd);
+    SDL_RenderClear(rd);
+    imgT = SDL_CreateTextureFromSurface(rd,imgSf);
+    AlertPointer(imgT);
+
+    sf = SDL_GetWindowSurface(wd);
+    AlertPointer(sf);
+    //  split
+    SplitMap(imgSf->w,imgSf->h,imgPieces,sizeX,sizeY);
+    SplitMap(sf->w,sf->h,mapPieces,sizeX,sizeY);
+
+
+    SDL_SetRenderDrawBlendMode(rd,SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(rd,255,255,255,255);
+    SDL_RenderFillRect(rd,nullptr); //  白底
+    SDL_SetRenderDrawColor(rd,0,0,0,0x80);  
+    SDL_RenderFillRect(rd,nullptr);//  黑色蒙版
+    //  得到灰底，rgba显示正常
+
+    // SDL_SetRenderDrawColor(rd,0,0,0,255);
+    // SDL_RenderDrawRect(rd,nullptr); //  black outline
+    SDL_SetRenderDrawColor(rd,255,128,0,0);
+    SDL_RenderPresent(rd);
+    // SelectedPieces.push_back(3);
 }
 void UninitGame(){
     DeletePointer(&imgPieces);
@@ -248,6 +271,28 @@ bool CheckPieceMatch(unsigned* matchs,unsigned count){
         if (matchs[i] != i) return false;
     }
     return true;
+}
+void ShowVictory(){
+    // std::fstream in("./src/txt/VictoryInfo.txt"); 
+    // std::istreambuf_iterator<char> beg(in), end; 
+    // std::string str(beg, end); 
+    // in.close();
+    // SDL_MessageBoxData data={   SDL_MESSAGEBOX_INFORMATION,
+    //     wd,
+    //     "INFO", 
+    //     (str+std::string("\n\n\npress esc to quit")).c_str()
+    // };
+    // SDL_ShowMessageBox(&data,NULL);
+    system("vic.cmd");  //cmd /c 
+}
+void RandPieces(){
+    srand(time(0));
+    int a,b;
+    for (auto i=0;i<PieceCount;++i){    //  应该会非常乱
+        a = rand()%PieceCount;
+        b = rand()%PieceCount;
+        SwapValue(PieceMatch[a],PieceMatch[b]);
+    }
 }
 
 
@@ -363,8 +408,16 @@ void MouseMotionHandler(){
 //     SDL_GetKeyboardState(&keyNum);
 // }
 // void KeyUpHandler(){
-    
 // }
+
+void KeyUpHandler(SDL_Keycode k){  // c63at1n9!
+    if (k == SDLK_UP){
+        for (auto i=0;i<PieceCount;++i){
+            PieceMatch[i] = i;
+            MapPiecesToUpdate.push_back(i);
+        }
+    }
+}
 
 void ClearRect(SDL_Rect* r){
     ZeroMmry(r,sizeof(SDL_Rect));

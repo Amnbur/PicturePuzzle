@@ -1,0 +1,1 @@
+PicturePuzzle.exe ".\\src\\img\\the duel.png" 5 4
