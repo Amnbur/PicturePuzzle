@@ -1,1 +1,1 @@
-PicturePuzzle.exe ".\\src\\img\\the duel.png" 5 4
+PicturePuzzle.exe ".\\src\\img\\a Knight.png" 5 4 1 1
