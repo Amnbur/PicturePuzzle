@@ -13,9 +13,10 @@
 #include <string>
 #include <thread>
 
-
-unsigned sizeX;
-unsigned sizeY;
+unsigned imgSizeX;
+unsigned imgSizeY;
+unsigned MapSizeX;
+unsigned MapSizeY;
 unsigned PieceCount = 0;
 SDL_Rect *imgPieces = nullptr;
 SDL_Rect *mapPieces = nullptr;
@@ -59,9 +60,10 @@ void SetRectFrame(SDL_Renderer *renderer, const SDL_Rect *rect);
 void InitGame(const char* imagePath =imgPath,int x=5,int y=4);
 void UninitGame();
 void SplitMap(int w,int h,SDL_Rect* rects,int xCount,int yCount);
+void UpdatePiece();
 bool CheckPieceMatch(unsigned* matchs,unsigned count);
 void ShowVictory();
-void RandPieces();
+void RandomizePieces();
 void ExitCheck();
 
 bool CheckPointInRect(int x,int y,SDL_Rect* rect);
@@ -99,7 +101,7 @@ int main(int argc,char *argv[]){
     return main_puzzle();
 }
 int main_puzzle(){
-
+    bool win = false;
 MAIN_LOOP:
     ContinueMainLoop = true;
 
@@ -109,7 +111,10 @@ MAIN_LOOP:
         for (auto i: MapPiecesToUpdate){
             SDL_RenderCopy(rd,imgT, imgPieces+PieceMatch[i] , mapPieces+i);
         }   MapPiecesToUpdate.clear();
-
+        // SDL_RenderCopy(,);
+        // SDL_CreateTexture();
+        // SDL_CreateTextureFromSurface()
+        // SDL_FillRect()
         //  接着处理焦点事件
         SDL_SetRenderDrawColor(rd,SelectingFrameColor[0],SelectingFrameColor[1],SelectingFrameColor[2],SelectingFrameColor[3]);
         for (auto i:SelectedPieces){
@@ -157,9 +162,24 @@ MAIN_LOOP:
             }
             SDL_RenderPresent(rd);
             Sleep(300);
+            win = true;
             std::thread threadA = std::thread(ShowVictory);
             threadA.detach();
         }
+        Sleep(20);
+    }
+
+    while (win){
+        if (SDL_PollEvent(&evt)){
+            switch(evt.type){
+            case SDL_QUIT:
+                goto DestroyWindowAndQuit;
+                break;
+            default:
+                ;
+            }
+        }
+        Sleep(20);
     }
 
 DestroyWindowAndQuit:
@@ -184,9 +204,9 @@ UNINIT:
 // }
 
 void InitGame(const char* imagePath,int x,int y){
-    sizeX = x;
-    sizeY = y;
-    PieceCount = sizeX * sizeY;
+    MapSizeX = x;
+    MapSizeY = y;
+    PieceCount = MapSizeX * MapSizeY;
     imgPieces = new SDL_Rect[PieceCount];
     mapPieces = new SDL_Rect[PieceCount];
     PieceMatch = new unsigned[PieceCount];
@@ -196,7 +216,7 @@ void InitGame(const char* imagePath,int x,int y){
         MapPiecesToUpdate.push_back(i);
     }
     AlertPointer(imgPieces);AlertPointer(imgPieces);AlertPointer(PieceMatch);
-    RandPieces();
+    RandomizePieces();
 
         if(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO|SDL_INIT_GAMECONTROLLER|SDL_INIT_SENSOR|SDL_INIT_EVENTS)<0)
         exit(0);// goto UNINIT;
@@ -226,8 +246,8 @@ void InitGame(const char* imagePath,int x,int y){
     sf = SDL_GetWindowSurface(wd);
     AlertPointer(sf);
     //  split
-    SplitMap(imgSf->w,imgSf->h,imgPieces,sizeX,sizeY);
-    SplitMap(sf->w,sf->h,mapPieces,sizeX,sizeY);
+    SplitMap(imgSf->w,imgSf->h,imgPieces,MapSizeX,MapSizeY);
+    SplitMap(sf->w,sf->h,mapPieces,MapSizeX,MapSizeY);
 
 
     SDL_SetRenderDrawBlendMode(rd,SDL_BLENDMODE_BLEND);
@@ -265,6 +285,9 @@ void SplitMap(int w,int h,SDL_Rect* rects,int xCount,int yCount){
         }
     }
 }
+void UpdatePiece(){
+
+}
 
 bool CheckPieceMatch(unsigned* matchs,unsigned count){
     for (unsigned i = 0;i<count;++i){
@@ -285,7 +308,7 @@ void ShowVictory(){
     // SDL_ShowMessageBox(&data,NULL);
     system("vic.cmd");  //cmd /c 
 }
-void RandPieces(){
+void RandomizePieces(){
     srand(time(0));
     int a,b;
     for (auto i=0;i<PieceCount;++i){    //  应该会非常乱
@@ -338,15 +361,15 @@ void MouseUpHandler(){
             int xa,xb;
             int ya,yb;
             int xx,yy;
-            xa = ((presentFocus%sizeX)<(formerFocus%sizeX))?(presentFocus%sizeX):(formerFocus%sizeX);
-            xb = ((presentFocus%sizeX)>=(formerFocus%sizeX))?(presentFocus%sizeX):(formerFocus%sizeX);
-            ya = ((presentFocus/sizeX)<(formerFocus/sizeX))?(presentFocus/sizeX):(formerFocus/sizeX);
-            yb = ((presentFocus/sizeX)>=(formerFocus/sizeX))?(presentFocus/sizeX):(formerFocus/sizeX);
+            xa = ((presentFocus%MapSizeX)<(formerFocus%MapSizeX))?(presentFocus%MapSizeX):(formerFocus%MapSizeX);
+            xb = ((presentFocus%MapSizeX)>=(formerFocus%MapSizeX))?(presentFocus%MapSizeX):(formerFocus%MapSizeX);
+            ya = ((presentFocus/MapSizeX)<(formerFocus/MapSizeX))?(presentFocus/MapSizeX):(formerFocus/MapSizeX);
+            yb = ((presentFocus/MapSizeX)>=(formerFocus/MapSizeX))?(presentFocus/MapSizeX):(formerFocus/MapSizeX);
             
             SelectedPieces.clear();
             for (yy=ya;yy<=yb;++yy) //  完成多选
                 for (xx=xa;xx<=xb;++xx)
-                    SelectedPieces.push_back(yy*sizeX+xx);
+                    SelectedPieces.push_back(yy*MapSizeX+xx);
         }
         MultipleSelectionModeEnabled = false;
     }
